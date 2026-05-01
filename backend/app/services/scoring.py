@@ -76,7 +76,7 @@ def rule_priority_categories(lead: Lead) -> tuple[int, str | None]:
         return 0, None
     cat = lead.category.lower()
     priority = [
-        "klinik", "clinic", "dokter", "doctor", "dental",
+        "dokter", "doctor",
         "kursus", "course", "school", "training", "academy",
         "salon", "spa", "beauty",
         "restoran", "restaurant", "cafe", "kafe",
@@ -91,6 +91,53 @@ def rule_priority_categories(lead: Lead) -> tuple[int, str | None]:
     return 0, None
 
 
+DENTAL_TERMS = [
+    "klinik gigi", "dokter gigi",
+    "dental clinic", "dental care", "dental studio",
+    "dental specialist", "dental center",
+    "dentist",
+    "ortodontis", "orthodontist", "orthodontic",
+]
+
+
+def _matches_dental(lead: Lead) -> str | None:
+    if not lead.category:
+        return None
+    cat = lead.category.lower()
+    for term in DENTAL_TERMS:
+        if term in cat:
+            return term
+    return None
+
+
+def rule_dental_clinic(lead: Lead) -> tuple[int, str | None]:
+    matched = _matches_dental(lead)
+    if matched:
+        return 30, f"dental_clinic:{matched}"
+    return 0, None
+
+
+def rule_aesthetic_dental(lead: Lead) -> tuple[int, str | None]:
+    if not lead.category:
+        return 0, None
+    cat = lead.category.lower()
+    for term in ("aesthetic", "estetik", "veneer", "implant"):
+        if term in cat:
+            return 15, f"aesthetic_dental:{term}"
+    return 0, None
+
+
+def rule_established_dental(lead: Lead) -> tuple[int, str | None]:
+    if not _matches_dental(lead):
+        return 0, None
+    rc = lead.review_count or 0
+    if rc >= 100:
+        return 15, "established_dental_high_volume"
+    if rc >= 30:
+        return 8, "established_dental_moderate_volume"
+    return 0, None
+
+
 RULES: list[ScoreRule] = [
     rule_no_website,
     rule_weak_website,
@@ -100,6 +147,9 @@ RULES: list[ScoreRule] = [
     rule_target_location,
     rule_has_review_volume,
     rule_priority_categories,
+    rule_dental_clinic,
+    rule_aesthetic_dental,
+    rule_established_dental,
 ]
 
 
