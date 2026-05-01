@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 0 0% 100%;
+  --fg: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-fg: 215 16% 47%;
+  --primary: 222 47% 11%;
+  --primary-fg: 210 40% 98%;
+  --card: 0 0% 100%;
+  --card-fg: 222 47% 11%;
+  --border: 214 32% 91%;
+  --success: 142 71% 45%;
+  --warning: 38 92% 50%;
+  --danger: 0 72% 51%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: 222 47% 6%;
+    --fg: 210 40% 98%;
+    --muted: 217 33% 12%;
+    --muted-fg: 215 20% 65%;
+    --primary: 210 40% 98%;
+    --primary-fg: 222 47% 11%;
+    --card: 222 47% 8%;
+    --card-fg: 210 40% 98%;
+    --border: 217 33% 17%;
+  }
+}
+
+* { border-color: hsl(var(--border)); }
+html, body { background: hsl(var(--bg)); color: hsl(var(--fg)); }
+body { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
