@@ -3,6 +3,9 @@ import { Sidebar } from '@/components/Sidebar';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { ToastProvider } from '@/components/ui/Toast';
 import { DialogProvider } from '@/components/ui/Dialog';
+import KeyboardShortcutsRoot, {
+  KeyboardShortcutsProvider,
+} from '@/components/KeyboardShortcuts';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -17,10 +20,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <ToastProvider>
             <DialogProvider>
-              <div className="flex">
-                <Sidebar />
-                <main className="flex-1 min-h-screen">{children}</main>
-              </div>
+              <KeyboardShortcutsProvider>
+                <div className="flex flex-col md:flex-row">
+                  <Sidebar />
+                  <main className="flex-1 min-h-screen min-w-0">{children}</main>
+                </div>
+                <KeyboardShortcutsRoot />
+              </KeyboardShortcutsProvider>
             </DialogProvider>
           </ToastProvider>
         </ThemeProvider>

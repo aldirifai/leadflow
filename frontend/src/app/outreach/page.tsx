@@ -14,7 +14,7 @@ import {
 import { Badge, Skeleton } from '@/components/ui';
 import { Button } from '@/components/ui/Button';
 import { formatDateTime } from '@/lib/helpers';
-import { ArrowRight, Inbox, MessageSquare } from 'lucide-react';
+import { ArrowRight, BarChart3, Inbox, MessageSquare } from 'lucide-react';
 
 type ChannelFilter = '' | 'email' | 'whatsapp' | 'linkedin' | 'other';
 type ReplyFilter = '' | 'yes' | 'no';
@@ -84,18 +84,26 @@ export default function OutreachPage() {
             Semua pesan yang pernah kamu kirim, di-log otomatis dari halaman lead.
           </p>
         </div>
-        {logs && (
-          <div className="flex gap-4 text-sm">
-            <div>
-              <div className="text-[11px] uppercase tracking-wide text-muted-fg">Total</div>
-              <div className="font-semibold tabular-nums">{total}</div>
+        <div className="flex items-center gap-4 flex-wrap">
+          {logs && (
+            <div className="flex gap-4 text-sm">
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-fg">Total</div>
+                <div className="font-semibold tabular-nums">{total}</div>
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-fg">Replied</div>
+                <div className="font-semibold tabular-nums text-accent">{repliedCount}</div>
+              </div>
             </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-wide text-muted-fg">Replied</div>
-              <div className="font-semibold tabular-nums text-accent">{repliedCount}</div>
-            </div>
-          </div>
-        )}
+          )}
+          <Link
+            href="/outreach/analytics"
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-transparent text-fg text-xs font-medium hover:bg-muted transition-colors"
+          >
+            <BarChart3 size={14} /> View analytics <ArrowRight size={12} />
+          </Link>
+        </div>
       </header>
 
       <Card>

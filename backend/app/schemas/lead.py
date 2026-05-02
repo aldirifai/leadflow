@@ -58,6 +58,24 @@ class LeadEnrichmentOut(BaseModel):
     enriched_at: datetime
 
 
+class TagOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    color: str | None
+    created_at: datetime
+
+
+class TagIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    color: str | None = Field(None, max_length=20)
+
+
+class TagWithCount(TagOut):
+    lead_count: int = 0
+
+
 class LeadOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -83,6 +101,7 @@ class LeadOut(BaseModel):
     notes: str | None
     scraped_at: datetime
     score: LeadScoreOut | None = None
+    tags: list[TagOut] = []
 
 
 class LeadDetailOut(LeadOut):
@@ -198,3 +217,17 @@ class GenerateMessageRequest(BaseModel):
 class GenerateMessageResponse(BaseModel):
     subject: str | None = None
     body: str
+
+
+class TagAttach(BaseModel):
+    tag_id: int
+
+
+class OutreachAnalytics(BaseModel):
+    total_sent: int
+    total_replied: int
+    reply_rate: float
+    avg_reply_hours: float | None
+    by_channel: list[dict[str, Any]]
+    by_hour: list[int]
+    by_dow: list[dict[str, Any]]

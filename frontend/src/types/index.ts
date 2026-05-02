@@ -16,6 +16,17 @@ export interface LeadEnrichment {
   enriched_at: string;
 }
 
+export interface Tag {
+  id: number;
+  name: string;
+  color: string | null;
+  created_at: string;
+}
+
+export interface TagWithCount extends Tag {
+  lead_count: number;
+}
+
 export interface Lead {
   id: number;
   place_id: string;
@@ -39,6 +50,7 @@ export interface Lead {
   notes: string | null;
   scraped_at: string;
   score: LeadScore | null;
+  tags: Tag[];
   enrichment?: LeadEnrichment | null;
   outreach_count?: number;
 }
@@ -79,6 +91,16 @@ export interface BlacklistEntry {
   identifier_value: string;
   reason: string | null;
   created_at: string;
+}
+
+export interface OutreachAnalytics {
+  total_sent: number;
+  total_replied: number;
+  reply_rate: number;
+  avg_reply_hours: number | null;
+  by_channel: Array<{ channel: string; sent: number; replied: number; reply_rate: number }>;
+  by_hour: number[];
+  by_dow: Array<{ dow: number; sent: number; replied: number }>;
 }
 
 export interface DashboardStats {

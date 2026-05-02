@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.deps import verify_api_key
 from app.db.session import get_db
-from app.models.lead import Lead, LeadScore, OutreachLog
+from app.models.lead import Lead, LeadScore, OutreachLog, lead_tags
 from app.schemas.lead import (
     LeadDetailOut,
     LeadListResponse,
@@ -37,9 +37,10 @@ def list_leads(
     has_website: bool | None = None,
     is_blacklisted: bool | None = None,
     search: str | None = None,
+    tags: str | None = Query(None, description="Comma-separated tag IDs (OR semantics)"),
     sort: str = Query("score_desc", pattern="^(score_desc|score_asc|recent|oldest|name)$"),
 ):
-    q = db.query(Lead).options(joinedload(Lead.score))
+    q = db.query(Lead).options(joinedload(Lead.score), joinedload(Lead.tags))
 
     if status_filter:
         q = q.filter(Lead.status == status_filter)
@@ -67,6 +68,18 @@ def list_leads(
     if search:
         like = f"%{search}%"
         q = q.filter(or_(Lead.name.ilike(like), Lead.address.ilike(like), Lead.category.ilike(like)))
+
+    if tags:
+        try:
+            tag_ids = [int(x) for x in tags.split(",") if x.strip()]
+        except ValueError:
+            tag_ids = []
+        if tag_ids:
+            q = q.filter(
+                Lead.id.in_(
+                    db.query(lead_tags.c.lead_id).filter(lead_tags.c.tag_id.in_(tag_ids))
+                )
+            )
 
     total = q.count()
 

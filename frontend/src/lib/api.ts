@@ -4,7 +4,10 @@ import type {
   Lead,
   LeadListResponse,
   MessageTemplate,
+  OutreachAnalytics,
   OutreachLog,
+  Tag,
+  TagWithCount,
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001/api';
@@ -153,4 +156,26 @@ export const api = {
     request<BlacklistEntry>(`/blacklist`, { method: 'POST', body: JSON.stringify(data) }),
 
   removeBlacklist: (id: number) => request<void>(`/blacklist/${id}`, { method: 'DELETE' }),
+
+  listTags: () => request<TagWithCount[]>(`/tags`),
+
+  createTag: (data: { name: string; color?: string | null }) =>
+    request<Tag>(`/tags`, { method: 'POST', body: JSON.stringify(data) }),
+
+  updateTag: (id: number, data: { name: string; color?: string | null }) =>
+    request<Tag>(`/tags/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  deleteTag: (id: number) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
+
+  attachTag: (lead_id: number, tag_id: number) =>
+    request<Lead>(`/leads/${lead_id}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ tag_id }),
+    }),
+
+  detachTag: (lead_id: number, tag_id: number) =>
+    request<Lead>(`/leads/${lead_id}/tags/${tag_id}`, { method: 'DELETE' }),
+
+  outreachAnalytics: (days = 90) =>
+    request<OutreachAnalytics>(`/outreach/analytics?days=${days}`),
 };

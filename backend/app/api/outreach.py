@@ -1,13 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import desc
+from sqlalchemy import Integer, desc, extract, func
 from sqlalchemy.orm import Session
 
 from app.core.deps import verify_api_key
 from app.db.session import get_db
 from app.models.lead import Lead, OutreachLog
-from app.schemas.lead import OutreachLogCreate, OutreachLogOut, ReplyMark
+from app.schemas.lead import OutreachAnalytics, OutreachLogCreate, OutreachLogOut, ReplyMark
 from app.services import blacklist, cooldown
 
 router = APIRouter(prefix="/leads", tags=["outreach"], dependencies=[Depends(verify_api_key)])
@@ -102,3 +102,98 @@ def list_all_outreach(
     if replied is not None:
         q = q.filter(OutreachLog.replied == replied)
     return q.order_by(desc(OutreachLog.sent_at)).offset((page - 1) * page_size).limit(page_size).all()
+
+
+@outreach_router.get("/analytics", response_model=OutreachAnalytics)
+def outreach_analytics(
+    db: Session = Depends(get_db),
+    days: int = Query(90, ge=7, le=365),
+):
+    """Aggregate stats for outreach in the last `days` window."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    total_sent = db.query(func.count(OutreachLog.id)).filter(OutreachLog.sent_at >= cutoff).scalar() or 0
+    total_replied = (
+        db.query(func.count(OutreachLog.id))
+        .filter(OutreachLog.sent_at >= cutoff, OutreachLog.replied == True)  # noqa: E712
+        .scalar()
+        or 0
+    )
+    reply_rate = (total_replied / total_sent * 100) if total_sent else 0.0
+
+    # Average reply time in hours (only for replied logs)
+    avg_seconds_row = (
+        db.query(
+            func.avg(
+                func.extract("epoch", OutreachLog.reply_at) - func.extract("epoch", OutreachLog.sent_at)
+            )
+        )
+        .filter(
+            OutreachLog.sent_at >= cutoff,
+            OutreachLog.replied == True,  # noqa: E712
+            OutreachLog.reply_at.isnot(None),
+        )
+        .scalar()
+    )
+    avg_reply_hours = round(avg_seconds_row / 3600, 1) if avg_seconds_row else None
+
+    # By channel
+    chan_rows = (
+        db.query(
+            OutreachLog.channel,
+            func.count(OutreachLog.id).label("sent"),
+            func.sum(func.cast(OutreachLog.replied, type_=Integer)).label("replied"),
+        )
+        .filter(OutreachLog.sent_at >= cutoff)
+        .group_by(OutreachLog.channel)
+        .all()
+    )
+    by_channel = []
+    for ch, sent, replied in chan_rows:
+        sent = sent or 0
+        replied = int(replied or 0)
+        by_channel.append({
+            "channel": ch,
+            "sent": sent,
+            "replied": replied,
+            "reply_rate": round((replied / sent * 100) if sent else 0.0, 2),
+        })
+
+    # By hour-of-day (UTC). Initialize 24 buckets to zero.
+    hour_rows = (
+        db.query(extract("hour", OutreachLog.sent_at).label("h"), func.count(OutreachLog.id).label("c"))
+        .filter(OutreachLog.sent_at >= cutoff)
+        .group_by("h")
+        .all()
+    )
+    by_hour = [0] * 24
+    for h, c in hour_rows:
+        if h is not None:
+            by_hour[int(h)] = c
+
+    # By day-of-week. Postgres EXTRACT(DOW FROM ts): Sunday=0..Saturday=6
+    dow_rows = (
+        db.query(
+            extract("dow", OutreachLog.sent_at).label("d"),
+            func.count(OutreachLog.id).label("sent"),
+            func.sum(func.cast(OutreachLog.replied, type_=Integer)).label("replied"),
+        )
+        .filter(OutreachLog.sent_at >= cutoff)
+        .group_by("d")
+        .all()
+    )
+    dow_map = {int(d): (int(s or 0), int(r or 0)) for d, s, r in dow_rows if d is not None}
+    by_dow = [
+        {"dow": i, "sent": dow_map.get(i, (0, 0))[0], "replied": dow_map.get(i, (0, 0))[1]}
+        for i in range(7)
+    ]
+
+    return OutreachAnalytics(
+        total_sent=total_sent,
+        total_replied=total_replied,
+        reply_rate=round(reply_rate, 2),
+        avg_reply_hours=avg_reply_hours,
+        by_channel=by_channel,
+        by_hour=by_hour,
+        by_dow=by_dow,
+    )

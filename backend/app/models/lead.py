@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Table,
     Text,
     UniqueConstraint,
 )
@@ -15,6 +16,15 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from app.db.session import Base
+
+
+lead_tags = Table(
+    "lead_tags",
+    Base.metadata,
+    Column("lead_id", Integer, ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+    Column("created_at", DateTime, default=datetime.utcnow, nullable=False),
+)
 
 
 class Lead(Base):
@@ -50,6 +60,7 @@ class Lead(Base):
     score = relationship("LeadScore", back_populates="lead", uselist=False, cascade="all, delete-orphan")
     enrichment = relationship("LeadEnrichment", back_populates="lead", uselist=False, cascade="all, delete-orphan")
     outreach_logs = relationship("OutreachLog", back_populates="lead", cascade="all, delete-orphan")
+    tags = relationship("Tag", secondary=lead_tags, back_populates="leads", lazy="joined")
 
 
 class LeadScore(Base):
@@ -148,3 +159,14 @@ class AppSetting(Base):
     key = Column(String(100), primary_key=True)
     value = Column(JSONB, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False, unique=True, index=True)
+    color = Column(String(20))
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    leads = relationship("Lead", secondary=lead_tags, back_populates="tags")

@@ -1,9 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useShortcut } from '@/components/KeyboardShortcuts';
 import { api } from '@/lib/api';
-import type { Lead, LeadListResponse, LeadStatus } from '@/types';
+import type { Lead, LeadListResponse, LeadStatus, TagWithCount } from '@/types';
 import {
   Card,
   CardContent,
@@ -18,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/Dialog';
 import { statusColor, formatDate } from '@/lib/helpers';
+import { cn } from '@/lib/cn';
 import {
   Search,
   ExternalLink,
@@ -35,6 +38,9 @@ import {
   SkipForward,
   Trash2,
   Ban,
+  Sparkles,
+  Bookmark,
+  BookmarkPlus,
 } from 'lucide-react';
 
 type SortValue = 'score_desc' | 'score_asc' | 'recent' | 'oldest' | 'name';
@@ -47,6 +53,7 @@ type Filters = {
   category: string;
   search: string;
   sort: SortValue;
+  tags: number[];
 };
 
 const DEFAULT_FILTERS: Filters = {
@@ -57,7 +64,20 @@ const DEFAULT_FILTERS: Filters = {
   category: '',
   search: '',
   sort: 'score_desc',
+  tags: [],
 };
+
+const TAG_DOTS: Record<string, string> = {
+  emerald: 'bg-emerald-500',
+  sky: 'bg-sky-500',
+  amber: 'bg-amber-500',
+  red: 'bg-red-500',
+  violet: 'bg-violet-500',
+  slate: 'bg-slate-500',
+  neutral: 'bg-neutral-500',
+  fuchsia: 'bg-fuchsia-500',
+};
+const tagDotClass = (c: string | null) => TAG_DOTS[c || 'neutral'] || TAG_DOTS.neutral;
 
 const PAGE_SIZE = 50;
 
@@ -90,6 +110,12 @@ export default function LeadsPage() {
   const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
+  const [enrichProgress, setEnrichProgress] = useState<{ done: number; total: number } | null>(null);
+  const [presets, setPresets] = useState<Array<{ name: string; filters: Filters }>>([]);
+  const [showPresetMenu, setShowPresetMenu] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const [allTags, setAllTags] = useState<TagWithCount[]>([]);
+  const router = useRouter();
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -109,6 +135,7 @@ export default function LeadsPage() {
       if (f.city) params.city = f.city;
       if (f.category) params.category = f.category;
       if (f.search) params.search = f.search;
+      if (f.tags && f.tags.length > 0) params.tags = f.tags.join(',');
       params.sort = f.sort;
       const res = await api.listLeads(params);
       setData(res);
@@ -117,10 +144,44 @@ export default function LeadsPage() {
     }
   };
 
+  // Load tags once on mount.
+  useEffect(() => {
+    api.listTags().then(setAllTags).catch(() => {
+      // silent — tag filter UI will simply be empty
+    });
+  }, []);
+
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, filters.sort, filters.status]);
+
+  // Reset focused row whenever the visible list changes.
+  useEffect(() => {
+    setFocusedIndex(-1);
+  }, [data?.page, data?.items.length]);
+
+  // j/k/Enter shortcuts for the leads list.
+  useShortcut('j', () => {
+    if (!data || data.items.length === 0) return;
+    setFocusedIndex((i) => {
+      const next = i < 0 ? 0 : Math.min(i + 1, data.items.length - 1);
+      return next;
+    });
+  });
+  useShortcut('k', () => {
+    if (!data || data.items.length === 0) return;
+    setFocusedIndex((i) => {
+      const next = i <= 0 ? 0 : i - 1;
+      return next;
+    });
+  });
+  useShortcut('Enter', () => {
+    if (!data) return;
+    if (focusedIndex < 0 || focusedIndex >= data.items.length) return;
+    const lead = data.items[focusedIndex];
+    router.push(`/leads/${lead.id}`);
+  });
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
@@ -130,6 +191,7 @@ export default function LeadsPage() {
     if (filters.city) n++;
     if (filters.category) n++;
     if (filters.search) n++;
+    if (filters.tags.length > 0) n++;
     return n;
   }, [filters]);
 
@@ -170,6 +232,7 @@ export default function LeadsPage() {
     if (f.city) params.city = f.city;
     if (f.category) params.category = f.category;
     if (f.search) params.search = f.search;
+    if (f.tags && f.tags.length > 0) params.tags = f.tags.join(',');
     params.sort = f.sort;
     return params;
   };
@@ -243,6 +306,39 @@ export default function LeadsPage() {
     }
   };
 
+  const handleBulkEnrich = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    const ok = await confirm({
+      title: `Enrich ${ids.length} lead?`,
+      description: `LLM analysis untuk masing-masing — biaya ~$0.001-0.005 per call (Claude Haiku via OpenRouter), total estimasi $${(ids.length * 0.005).toFixed(2)}. Sequential, ~5-15 detik per lead.`,
+      confirmText: 'Enrich semua',
+    });
+    if (!ok) return;
+    setBulkBusy('enrich');
+    setEnrichProgress({ done: 0, total: ids.length });
+    let success = 0;
+    let failed = 0;
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        await api.enrichLead(ids[i]);
+        success++;
+      } catch {
+        failed++;
+      }
+      setEnrichProgress({ done: i + 1, total: ids.length });
+    }
+    setEnrichProgress(null);
+    setBulkBusy(null);
+    if (failed === 0) {
+      toast.success(`${success} lead berhasil di-enrich.`);
+    } else {
+      toast.danger(`${success} sukses, ${failed} gagal. Cek OpenRouter quota / network.`);
+    }
+    clearSelection();
+    await fetchData();
+  };
+
   const handleBulkDelete = async () => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
@@ -264,6 +360,47 @@ export default function LeadsPage() {
     } finally {
       setBulkBusy(null);
     }
+  };
+
+  // Load presets from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('leadflow:saved-filters');
+      if (raw) setPresets(JSON.parse(raw));
+    } catch {
+      // ignore corrupted
+    }
+  }, []);
+
+  const persistPresets = (next: Array<{ name: string; filters: Filters }>) => {
+    setPresets(next);
+    try {
+      localStorage.setItem('leadflow:saved-filters', JSON.stringify(next));
+    } catch {
+      // localStorage full or disabled — silent
+    }
+  };
+
+  const handleSavePreset = () => {
+    const name = prompt('Nama preset:', '');
+    if (!name?.trim()) return;
+    const next = [...presets.filter((p) => p.name !== name.trim()), { name: name.trim(), filters }];
+    persistPresets(next);
+    toast.success(`Preset "${name.trim()}" tersimpan.`);
+  };
+
+  const handleApplyPreset = (preset: { name: string; filters: Filters }) => {
+    // Backfill tags for older presets saved before tags filter existed.
+    const safe: Filters = { ...DEFAULT_FILTERS, ...preset.filters, tags: preset.filters.tags ?? [] };
+    setFilters(safe);
+    setPage(1);
+    setShowPresetMenu(false);
+    fetchData({ ...safe, page: 1 });
+    toast.info(`Preset "${preset.name}" applied.`);
+  };
+
+  const handleDeletePreset = (name: string) => {
+    persistPresets(presets.filter((p) => p.name !== name));
   };
 
   const handleRescore = async () => {
@@ -401,8 +538,56 @@ export default function LeadsPage() {
                   <X size={14} />
                   Reset
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSavePreset}
+                  title="Simpan filter aktif sebagai preset"
+                >
+                  <BookmarkPlus size={14} />
+                  Save preset
+                </Button>
               </>
             )}
+
+            {/* Presets dropdown */}
+            <div className="relative ml-auto">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowPresetMenu((s) => !s)}
+                disabled={presets.length === 0}
+                title={presets.length === 0 ? 'Belum ada preset tersimpan' : 'Saved presets'}
+              >
+                <Bookmark size={14} />
+                Presets {presets.length > 0 && `(${presets.length})`}
+              </Button>
+              {showPresetMenu && presets.length > 0 && (
+                <div className="absolute right-0 top-full mt-1 z-20 min-w-[220px] rounded-md border border-border bg-elevated shadow-lg p-1 animate-fade-in">
+                  {presets.map((p) => (
+                    <div
+                      key={p.name}
+                      className="flex items-center gap-1 group"
+                    >
+                      <button
+                        onClick={() => handleApplyPreset(p)}
+                        className="flex-1 text-left px-2 py-1.5 text-sm rounded hover:bg-muted transition-colors"
+                      >
+                        {p.name}
+                      </button>
+                      <button
+                        onClick={() => handleDeletePreset(p.name)}
+                        className="opacity-0 group-hover:opacity-100 px-1.5 py-1 text-muted-fg hover:text-danger transition"
+                        title="Hapus preset"
+                        aria-label={`Hapus preset ${p.name}`}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {showMoreFilters && (
@@ -468,6 +653,64 @@ export default function LeadsPage() {
                   />
                 </div>
               </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>Tags</Label>
+                  {filters.tags.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFilters({ ...filters, tags: [] })}
+                      className="text-[10px] text-muted-fg hover:text-fg transition-colors"
+                    >
+                      Clear ({filters.tags.length})
+                    </button>
+                  )}
+                </div>
+                {allTags.length === 0 ? (
+                  <p className="text-xs text-muted-fg">
+                    Belum ada tag. Bikin di halaman <Link href="/tags" className="underline hover:text-fg">Tags</Link>.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {allTags.map((t) => {
+                      const active = filters.tags.includes(t.id);
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            const next = active
+                              ? filters.tags.filter((id) => id !== t.id)
+                              : [...filters.tags, t.id];
+                            setFilters({ ...filters, tags: next });
+                          }}
+                          aria-pressed={active}
+                          className={cn(
+                            'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                            active
+                              ? 'bg-accent/15 text-accent border-accent/30'
+                              : 'bg-bg/40 text-muted-fg border-border hover:text-fg hover:border-fg/20',
+                          )}
+                        >
+                          <span
+                            className={cn('size-1.5 rounded-full shrink-0', tagDotClass(t.color))}
+                            aria-hidden
+                          />
+                          {t.name}
+                          <span className="text-[10px] opacity-70">{t.lead_count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {filters.tags.length > 1 && (
+                  <p className="text-[10px] text-muted-fg">
+                    Multi-select: lead yang punya <strong>salah satu</strong> tag terpilih akan tampil (OR).
+                  </p>
+                )}
+              </div>
+
               <div>
                 <Button size="sm" onClick={onApply}>
                   Terapkan filter
@@ -548,6 +791,7 @@ export default function LeadsPage() {
                     lead={lead}
                     index={i}
                     selected={selected.has(lead.id)}
+                    focused={i === focusedIndex}
                     onToggle={() => toggleOne(lead.id)}
                   />
                 ))}
@@ -595,11 +839,26 @@ export default function LeadsPage() {
       {/* Bulk action bar — appears at bottom when ≥1 selected */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 animate-fade-in">
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-elevated/95 backdrop-blur shadow-xl px-3 py-2">
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-elevated/95 backdrop-blur shadow-xl px-3 py-2 flex-wrap max-w-[calc(100vw-2rem)]">
             <span className="text-xs font-medium px-2">
               {selected.size} terpilih
+              {enrichProgress && (
+                <span className="ml-2 text-accent">
+                  · enriching {enrichProgress.done}/{enrichProgress.total}
+                </span>
+              )}
             </span>
             <span className="h-5 w-px bg-border" />
+            <Button
+              size="sm"
+              variant="default"
+              onClick={handleBulkEnrich}
+              disabled={bulkBusy !== null}
+              title="Run LLM enrichment for all selected"
+            >
+              <Sparkles size={13} className={bulkBusy === 'enrich' ? 'animate-pulse' : ''} />
+              Enrich
+            </Button>
             <Button
               size="sm"
               variant="success"
@@ -657,21 +916,35 @@ function LeadRow({
   lead,
   index,
   selected,
+  focused,
   onToggle,
 }: {
   lead: Lead;
   index: number;
   selected: boolean;
+  focused: boolean;
   onToggle: () => void;
 }) {
+  const rowRef = useRef<HTMLTableRowElement | null>(null);
   const score = lead.score?.fit_score ?? 0;
   const isHigh = score >= 70;
   const stripe = index % 2 === 1 ? 'dark:bg-bg/30' : '';
   const selectedBg = selected ? 'bg-accent/5 dark:bg-accent/10' : '';
+  const focusedClass = focused
+    ? 'bg-accent/10 dark:bg-accent/15 outline outline-2 outline-ring outline-offset-[-2px]'
+    : '';
+
+  useEffect(() => {
+    if (focused && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: 'nearest' });
+    }
+  }, [focused]);
 
   return (
     <tr
-      className={`group border-b border-border hover:bg-muted/40 transition-colors ${stripe} ${selectedBg}`}
+      ref={rowRef}
+      aria-selected={focused}
+      className={`group border-b border-border hover:bg-muted/40 transition-colors ${stripe} ${selectedBg} ${focusedClass}`}
     >
       {/* Checkbox */}
       <td className="px-3 py-3 align-top">

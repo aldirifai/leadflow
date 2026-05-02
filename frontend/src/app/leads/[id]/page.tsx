@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useShortcut } from '@/components/KeyboardShortcuts';
 import { api } from '@/lib/api';
-import type { Lead, MessageTemplate, OutreachLog } from '@/types';
+import type { Lead, MessageTemplate, OutreachLog, Tag, TagWithCount } from '@/types';
 import {
   Card,
   CardContent,
@@ -32,6 +33,7 @@ import { useConfirm } from '@/components/ui/Dialog';
 import {
   buildGmailCompose,
   buildWhatsAppLink,
+  cleanReplyText,
   copyToClipboard,
   formatDateTime,
   scoreColor,
@@ -41,17 +43,21 @@ import {
   ArrowLeft,
   CheckCircle2,
   Copy,
+  Eraser,
   ExternalLink,
   MessageSquare,
   Pencil,
+  Plus,
   RefreshCw,
   Send,
   Sparkles,
   Star,
+  Tag as TagIcon,
   Trash2,
   X,
   XCircle,
 } from 'lucide-react';
+import { cn } from '@/lib/cn';
 
 type ComposeChannel = 'email' | 'whatsapp' | 'linkedin';
 type TabKey = 'overview' | 'score' | 'enrichment' | 'compose' | 'outreach' | 'notes';
@@ -63,6 +69,29 @@ const CHANNEL_TONE: Record<OutreachLog['channel'], string> = {
   other: 'bg-muted text-fg',
 };
 
+const TAG_COLORS: Record<string, string> = {
+  emerald: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  sky: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+  amber: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  red: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
+  violet: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
+  slate: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
+  neutral: 'bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200',
+  fuchsia: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200',
+};
+const TAG_DOTS: Record<string, string> = {
+  emerald: 'bg-emerald-500',
+  sky: 'bg-sky-500',
+  amber: 'bg-amber-500',
+  red: 'bg-red-500',
+  violet: 'bg-violet-500',
+  slate: 'bg-slate-500',
+  neutral: 'bg-neutral-500',
+  fuchsia: 'bg-fuchsia-500',
+};
+const tagColorClass = (c: string | null) => TAG_COLORS[c || 'neutral'] || TAG_COLORS.neutral;
+const tagDotClass = (c: string | null) => TAG_DOTS[c || 'neutral'] || TAG_DOTS.neutral;
+
 export default function LeadDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -71,6 +100,7 @@ export default function LeadDetailPage() {
   const [lead, setLead] = useState<Lead | null>(null);
   const [outreach, setOutreach] = useState<OutreachLog[]>([]);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [allTags, setAllTags] = useState<TagWithCount[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>('overview');
 
@@ -101,14 +131,16 @@ export default function LeadDetailPage() {
 
   const refresh = async () => {
     try {
-      const [l, o, t] = await Promise.all([
+      const [l, o, t, tg] = await Promise.all([
         api.getLead(leadId),
         api.listLeadOutreach(leadId),
         api.listTemplates(),
+        api.listTags(),
       ]);
       setLead(l);
       setOutreach(o);
       setTemplates(t);
+      setAllTags(tg);
       setEditingNotes(l.notes || '');
     } catch (e) {
       setError(String(e));
@@ -120,10 +152,8 @@ export default function LeadDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId]);
 
-  if (error) return <ErrorState message={error} />;
-  if (!lead) return <LoadingState />;
-
   const handleEnrich = async () => {
+    if (enriching) return;
     setEnriching(true);
     try {
       await api.enrichLead(leadId);
@@ -137,6 +167,7 @@ export default function LeadDetailPage() {
   };
 
   const handleGenerate = async () => {
+    if (generating !== null) return;
     setComposeStatus(null);
     setGenerating(composeChannel);
     try {
@@ -155,6 +186,38 @@ export default function LeadDetailPage() {
       setGenerating(null);
     }
   };
+
+  // Keyboard shortcuts (registered unconditionally — guards inside).
+  // `e` -> trigger enrich (when not already enriching)
+  useShortcut('e', () => {
+    if (!lead || enriching) return;
+    void handleEnrich();
+  });
+  // `g` -> switch to Compose tab AND trigger generate.
+  // CONFLICT NOTE: the global root also listens to `g` as the start of a `g <x>`
+  // navigation sequence. To preserve both, this handler waits 220ms before firing
+  // — if a follow-up printable key arrives within that window we assume the user
+  // is mid-sequence (e.g. `g l`) and skip generate. A lone `g` triggers generate.
+  useShortcut('g', () => {
+    if (!lead || generating !== null) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const cancel = (ev: KeyboardEvent) => {
+      if (ev.key.length === 1 && ev.key !== 'g') {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      }
+      window.removeEventListener('keydown', cancel, true);
+    };
+    timer = setTimeout(() => {
+      window.removeEventListener('keydown', cancel, true);
+      setTab('compose');
+      void handleGenerate();
+    }, 220);
+    window.addEventListener('keydown', cancel, true);
+  });
+
+  if (error) return <ErrorState message={error} />;
+  if (!lead) return <LoadingState />;
 
   const handleSendAndLog = async (action: 'open' | 'copy') => {
     setComposeStatus(null);
@@ -266,6 +329,39 @@ export default function LeadDetailPage() {
     await refresh();
   };
 
+  const handleAttachTag = async (tagId: number) => {
+    try {
+      await api.attachTag(leadId, tagId);
+      toast.success('Tag terpasang.');
+      await refresh();
+    } catch (e) {
+      toast.danger(`Gagal attach tag: ${e}`);
+    }
+  };
+
+  const handleDetachTag = async (tagId: number) => {
+    try {
+      await api.detachTag(leadId, tagId);
+      toast.success('Tag ter-detach.');
+      await refresh();
+    } catch (e) {
+      toast.danger(`Gagal detach tag: ${e}`);
+    }
+  };
+
+  const handleCreateAndAttach = async (name: string, color: string | null) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+      const created = await api.createTag({ name: trimmed, color });
+      await api.attachTag(leadId, created.id);
+      toast.success(`Tag "${created.name}" dibuat & terpasang.`);
+      await refresh();
+    } catch (e) {
+      toast.danger(`Gagal create tag: ${e}`);
+    }
+  };
+
   const handleMarkReply = async (logId: number) => {
     if (!replyText.trim()) return;
     await api.markReply(leadId, logId, replyText);
@@ -325,6 +421,27 @@ export default function LeadDetailPage() {
                   <Badge className="bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">
                     Blacklisted
                   </Badge>
+                )}
+                {lead.tags.length > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {lead.tags.slice(0, 3).map((t) => (
+                      <Badge
+                        key={t.id}
+                        className={cn('inline-flex items-center gap-1', tagColorClass(t.color))}
+                      >
+                        <span
+                          className={cn('size-1.5 rounded-full', tagDotClass(t.color))}
+                          aria-hidden
+                        />
+                        {t.name}
+                      </Badge>
+                    ))}
+                    {lead.tags.length > 3 && (
+                      <Badge className="bg-muted text-muted-fg border-border">
+                        +{lead.tags.length - 3}
+                      </Badge>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -470,6 +587,16 @@ export default function LeadDetailPage() {
                     <Field label="WhatsApp" value={lead.whatsapp} mono />
                   </CardContent>
                 </Card>
+              </div>
+
+              <div className="mt-4">
+                <TagsCard
+                  leadTags={lead.tags}
+                  allTags={allTags}
+                  onAttach={handleAttachTag}
+                  onDetach={handleDetachTag}
+                  onCreate={handleCreateAndAttach}
+                />
               </div>
             </TabsContent>
 
@@ -783,12 +910,23 @@ export default function LeadDetailPage() {
 
                         {showReplyFor === log.id && (
                           <div className="space-y-2 pt-2 border-t border-border">
-                            <Label>Reply text</Label>
+                            <div className="flex items-center justify-between">
+                              <Label>Reply text</Label>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setReplyText(cleanReplyText(replyText))}
+                                disabled={!replyText.trim()}
+                                title="Strip quoted lines (>), &quot;On X wrote:&quot; headers, and signatures"
+                              >
+                                <Eraser size={12} /> Bersihkan
+                              </Button>
+                            </div>
                             <Textarea
-                              placeholder="Paste isi balasan dari mereka..."
+                              placeholder="Paste isi balasan dari mereka. Klik 'Bersihkan' untuk auto-strip quoted text dan signature."
                               value={replyText}
                               onChange={(e) => setReplyText(e.target.value)}
-                              rows={3}
+                              rows={5}
                             />
                             <div className="flex gap-2">
                               <Button size="sm" onClick={() => handleMarkReply(log.id)}>
@@ -1044,3 +1182,209 @@ function ContactField({
   );
 }
 
+function TagsCard({
+  leadTags,
+  allTags,
+  onAttach,
+  onDetach,
+  onCreate,
+}: {
+  leadTags: Tag[];
+  allTags: TagWithCount[];
+  onAttach: (tagId: number) => Promise<void>;
+  onDetach: (tagId: number) => Promise<void>;
+  onCreate: (name: string, color: string | null) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [createMode, setCreateMode] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [busy, setBusy] = useState<number | 'create' | null>(null);
+
+  const attachedIds = new Set(leadTags.map((t) => t.id));
+  const available = allTags.filter((t) => !attachedIds.has(t.id));
+
+  const closePopover = () => {
+    setOpen(false);
+    setCreateMode(false);
+    setNewName('');
+  };
+
+  // Esc closes popover
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closePopover();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  const doAttach = async (tagId: number) => {
+    setBusy(tagId);
+    try {
+      await onAttach(tagId);
+      closePopover();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const doCreate = async () => {
+    if (!newName.trim()) return;
+    setBusy('create');
+    try {
+      await onCreate(newName.trim(), 'emerald');
+      closePopover();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Tags</CardTitle>
+        <CardDescription>Segmentasi lead pakai tag warna-warni.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {leadTags.length === 0 ? (
+          <p className="text-sm text-muted-fg">
+            Belum ada tag. Klik <span className="font-medium text-fg">+ Add tag</span> untuk pertama.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {leadTags.map((t) => (
+              <span
+                key={t.id}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md border border-transparent px-2 py-0.5 text-[11px] font-medium',
+                  tagColorClass(t.color),
+                )}
+              >
+                <span
+                  className={cn('size-1.5 rounded-full', tagDotClass(t.color))}
+                  aria-hidden
+                />
+                {t.name}
+                <button
+                  type="button"
+                  onClick={() => onDetach(t.id)}
+                  className="ml-0.5 -mr-0.5 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-label={`Detach ${t.name}`}
+                  title="Detach tag"
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="relative">
+          {!open ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setOpen(true)}
+              className="gap-1"
+            >
+              <Plus size={13} /> Add tag
+            </Button>
+          ) : (
+            <div className="rounded-md border border-border bg-elevated shadow-md p-2 max-w-sm animate-fade-in">
+              {!createMode ? (
+                <>
+                  {available.length === 0 ? (
+                    <p className="text-xs text-muted-fg px-2 py-1.5">
+                      Semua tag sudah terpasang. Bikin yang baru:
+                    </p>
+                  ) : (
+                    <ul className="max-h-56 overflow-y-auto py-0.5">
+                      {available.map((t) => (
+                        <li key={t.id}>
+                          <button
+                            onClick={() => doAttach(t.id)}
+                            disabled={busy !== null}
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-muted text-left transition-colors disabled:opacity-50"
+                          >
+                            <span
+                              className={cn(
+                                'size-2 rounded-full shrink-0',
+                                tagDotClass(t.color),
+                              )}
+                              aria-hidden
+                            />
+                            <span className="flex-1 truncate">{t.name}</span>
+                            <span className="text-[10px] text-muted-fg shrink-0">
+                              {t.lead_count}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="border-t border-border mt-1 pt-1">
+                    <button
+                      onClick={() => setCreateMode(true)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-muted text-left text-accent transition-colors"
+                    >
+                      <Plus size={13} />
+                      <span>Create new tag...</span>
+                    </button>
+                    <button
+                      onClick={closePopover}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted text-left text-muted-fg transition-colors"
+                    >
+                      <X size={12} />
+                      <span>Tutup</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2 p-1">
+                  <Label htmlFor="new-tag-name">Nama tag baru</Label>
+                  <Input
+                    id="new-tag-name"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="cth: hot lead"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        doCreate();
+                      }
+                    }}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={doCreate}
+                      disabled={busy !== null || !newName.trim()}
+                    >
+                      <TagIcon size={12} /> Create &amp; attach
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setCreateMode(false);
+                        setNewName('');
+                      }}
+                    >
+                      Batal
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-fg leading-relaxed">
+                    Default warna emerald. Edit warna nanti di halaman{' '}
+                    <span className="font-medium">Tags</span>.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

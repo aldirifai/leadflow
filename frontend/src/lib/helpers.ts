@@ -39,6 +39,44 @@ export function scoreColor(score: number): string {
   return 'text-muted-fg';
 }
 
+// Best-effort cleanup of a pasted email/WA reply: strips quoted blocks,
+// "On X wrote:" / "Pada X menulis:" headers, and common signature markers.
+// Heuristic — may over-strip on adversarial input.
+export function cleanReplyText(raw: string): string {
+  if (!raw) return '';
+  const lines = raw.replace(/\r\n/g, '\n').split('\n');
+
+  const quoteHeader = [
+    /^On\s+.+wrote:?\s*$/i,
+    /^Pada\s+.+menulis:?\s*$/i,
+    /^From:\s+/i,
+    /^Dari:\s+/i,
+    /^-{2,}\s*(Original Message|Forwarded message|Pesan asli|Pesan yang diteruskan)\s*-{2,}\s*$/i,
+    /^_{4,}$/,
+  ];
+  const signatureDelim = [
+    /^--\s*$/,
+    /^—\s*$/,
+    /^Sent from my\s+.+/i,
+    /^Dikirim dari\s+.+/i,
+    /^Get Outlook for\s+/i,
+  ];
+
+  const out: string[] = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (quoteHeader.some((re) => re.test(t))) break;
+    if (signatureDelim.some((re) => re.test(t))) break;
+    if (/^>+(\s|$)/.test(t)) continue;
+    out.push(line);
+  }
+
+  while (out.length && !out[0].trim()) out.shift();
+  while (out.length && !out[out.length - 1].trim()) out.pop();
+
+  return out.join('\n');
+}
+
 export function statusColor(status: string): string {
   const map: Record<string, string> = {
     new: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',

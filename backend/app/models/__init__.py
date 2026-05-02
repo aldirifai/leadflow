@@ -8,6 +8,7 @@ from app.models.lead import (
     MessageTemplate,
     OutreachLog,
     SearchSession,
+    Tag,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "MessageTemplate",
     "OutreachLog",
     "SearchSession",
+    "Tag",
 ]
