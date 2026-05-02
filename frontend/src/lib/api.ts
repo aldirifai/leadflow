@@ -66,6 +66,37 @@ export const api = {
 
   deleteLead: (id: number) => request<void>(`/leads/${id}`, { method: 'DELETE' }),
 
+  bulkUpdateStatus: (ids: number[], status: string) =>
+    request<{ updated: number }>(`/leads/bulk/status`, {
+      method: 'POST',
+      body: JSON.stringify({ ids, status }),
+    }),
+
+  bulkDelete: (ids: number[]) =>
+    request<{ deleted: number }>(`/leads/bulk/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+
+  exportLeadsCsv: async (params: Record<string, string | number | boolean | undefined> = {}) => {
+    const search = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') search.set(k, String(v));
+    });
+    const qs = search.toString();
+    const res = await fetch(`${API_URL}/leads/export.csv${qs ? `?${qs}` : ''}`, {
+      headers: { 'X-API-Key': API_KEY },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Export ${res.status}: ${text}`);
+    }
+    const blob = await res.blob();
+    const filename = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1]
+      || `leadflow-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    return { blob, filename };
+  },
+
   enrichLead: (id: number) => request<Lead>(`/leads/${id}/enrich`, { method: 'POST' }),
 
   generateMessage: (

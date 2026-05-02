@@ -30,6 +30,11 @@ import {
   Settings2,
   Globe,
   X,
+  Download,
+  Check,
+  SkipForward,
+  Trash2,
+  Ban,
 } from 'lucide-react';
 
 type SortValue = 'score_desc' | 'score_asc' | 'recent' | 'oldest' | 'name';
@@ -82,6 +87,9 @@ export default function LeadsPage() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [rescoring, setRescoring] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -153,6 +161,111 @@ export default function LeadsPage() {
     fetchData({ ...DEFAULT_FILTERS, page: 1 });
   };
 
+  const filterParams = (f: Filters) => {
+    const params: Record<string, string | number | boolean> = {};
+    if (f.status) params.status = f.status;
+    if (f.min_score) params.min_score = Number(f.min_score);
+    if (f.has_website === 'yes') params.has_website = true;
+    if (f.has_website === 'no') params.has_website = false;
+    if (f.city) params.city = f.city;
+    if (f.category) params.category = f.category;
+    if (f.search) params.search = f.search;
+    params.sort = f.sort;
+    return params;
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const { blob, filename } = await api.exportLeadsCsv(filterParams(filters));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`CSV ter-download: ${filename}`);
+    } catch (e) {
+      toast.danger(`Export gagal: ${e}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const visibleIds = data?.items.map((l) => l.id) ?? [];
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+
+  const toggleOne = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelected((prev) => {
+      if (allVisibleSelected) {
+        const next = new Set(prev);
+        visibleIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      const next = new Set(prev);
+      visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const handleBulkStatus = async (newStatus: string, label: string) => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    const ok = await confirm({
+      title: `${label} ${ids.length} lead?`,
+      description: `Status ${ids.length} lead akan di-update jadi "${newStatus}".`,
+      confirmText: label,
+    });
+    if (!ok) return;
+    setBulkBusy(newStatus);
+    try {
+      const res = await api.bulkUpdateStatus(ids, newStatus);
+      toast.success(`${res.updated} lead di-${label.toLowerCase()}.`);
+      clearSelection();
+      await fetchData();
+    } catch (e) {
+      toast.danger(`Bulk update gagal: ${e}`);
+    } finally {
+      setBulkBusy(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    const ok = await confirm({
+      title: `Hapus ${ids.length} lead?`,
+      description: `${ids.length} lead beserta score, enrichment, dan outreach log akan terhapus permanen. Tidak bisa di-undo.`,
+      confirmText: 'Hapus permanen',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setBulkBusy('delete');
+    try {
+      const res = await api.bulkDelete(ids);
+      toast.success(`${res.deleted} lead dihapus.`);
+      clearSelection();
+      await fetchData();
+    } catch (e) {
+      toast.danger(`Bulk delete gagal: ${e}`);
+    } finally {
+      setBulkBusy(null);
+    }
+  };
+
   const handleRescore = async () => {
     const ok = await confirm({
       title: 'Re-score semua leads?',
@@ -197,6 +310,10 @@ export default function LeadsPage() {
             <Settings2 size={14} />
             Setup extension
           </Link>
+          <Button variant="ghost" size="sm" onClick={handleExport} disabled={exporting}>
+            <Download size={14} className={exporting ? 'animate-pulse' : ''} />
+            {exporting ? 'Exporting...' : 'Export CSV'}
+          </Button>
           <Button variant="subtle" size="sm" onClick={handleRescore} disabled={rescoring}>
             <RotateCcw size={14} className={rescoring ? 'animate-spin' : ''} />
             {rescoring ? 'Menghitung...' : 'Re-score all'}
@@ -386,6 +503,15 @@ export default function LeadsPage() {
           <table className="w-full text-sm border-separate border-spacing-0">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-muted-fg">
+                <th className="sticky top-0 z-10 bg-card/95 backdrop-blur px-3 py-3 font-medium border-b border-border w-[36px]">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    className="size-3.5 cursor-pointer accent-accent"
+                  />
+                </th>
                 <th className="sticky top-0 z-10 bg-card/95 backdrop-blur px-4 py-3 font-medium border-b border-border w-[28%]">
                   Klinik
                 </th>
@@ -417,18 +543,24 @@ export default function LeadsPage() {
               {loading && !data && <SkeletonRows />}
               {data &&
                 data.items.map((lead, i) => (
-                  <LeadRow key={lead.id} lead={lead} index={i} />
+                  <LeadRow
+                    key={lead.id}
+                    lead={lead}
+                    index={i}
+                    selected={selected.has(lead.id)}
+                    onToggle={() => toggleOne(lead.id)}
+                  />
                 ))}
               {data && data.items.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={9} className="p-0">
+                  <td colSpan={10} className="p-0">
                     <EmptyState hasFilters={activeFilterCount > 0} onReset={onReset} />
                   </td>
                 </tr>
               )}
               {loading && data && (
                 <tr>
-                  <td colSpan={9} className="p-3">
+                  <td colSpan={10} className="p-3">
                     <div className="flex items-center justify-center gap-2 text-xs text-muted-fg">
                       <span className="inline-block h-3 w-3 rounded-full border-2 border-border border-t-fg animate-spin" />
                       Memuat...
@@ -459,6 +591,60 @@ export default function LeadsPage() {
           </CardFooter>
         )}
       </Card>
+
+      {/* Bulk action bar — appears at bottom when ≥1 selected */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 animate-fade-in">
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-elevated/95 backdrop-blur shadow-xl px-3 py-2">
+            <span className="text-xs font-medium px-2">
+              {selected.size} terpilih
+            </span>
+            <span className="h-5 w-px bg-border" />
+            <Button
+              size="sm"
+              variant="success"
+              onClick={() => handleBulkStatus('approved', 'Approve')}
+              disabled={bulkBusy !== null}
+            >
+              <Check size={13} /> Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleBulkStatus('skipped', 'Skip')}
+              disabled={bulkBusy !== null}
+            >
+              <SkipForward size={13} /> Skip
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleBulkStatus('dropped', 'Drop')}
+              disabled={bulkBusy !== null}
+            >
+              <Ban size={13} /> Drop
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={handleBulkDelete}
+              disabled={bulkBusy !== null}
+            >
+              <Trash2 size={13} /> Hapus
+            </Button>
+            <span className="h-5 w-px bg-border" />
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={clearSelection}
+              disabled={bulkBusy !== null}
+              aria-label="Clear selection"
+            >
+              <X size={13} />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -467,13 +653,37 @@ export default function LeadsPage() {
 /* Sub-components                                                             */
 /* -------------------------------------------------------------------------- */
 
-function LeadRow({ lead, index }: { lead: Lead; index: number }) {
+function LeadRow({
+  lead,
+  index,
+  selected,
+  onToggle,
+}: {
+  lead: Lead;
+  index: number;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   const score = lead.score?.fit_score ?? 0;
   const isHigh = score >= 70;
   const stripe = index % 2 === 1 ? 'dark:bg-bg/30' : '';
+  const selectedBg = selected ? 'bg-accent/5 dark:bg-accent/10' : '';
 
   return (
-    <tr className={`group border-b border-border hover:bg-muted/40 transition-colors ${stripe}`}>
+    <tr
+      className={`group border-b border-border hover:bg-muted/40 transition-colors ${stripe} ${selectedBg}`}
+    >
+      {/* Checkbox */}
+      <td className="px-3 py-3 align-top">
+        <input
+          type="checkbox"
+          aria-label={`Select ${lead.name}`}
+          checked={selected}
+          onChange={onToggle}
+          className="size-3.5 cursor-pointer accent-accent"
+        />
+      </td>
+
       {/* Name + address with left accent */}
       <td className="px-4 py-3 align-top relative">
         <span
@@ -607,6 +817,9 @@ function SkeletonRows() {
     <>
       {Array.from({ length: 8 }).map((_, i) => (
         <tr key={i} className="border-b border-border">
+          <td className="px-3 py-3">
+            <Skeleton className="size-3.5" />
+          </td>
           <td className="px-4 py-3">
             <Skeleton className="h-4 w-48" />
             <Skeleton className="h-3 w-64 mt-2" />

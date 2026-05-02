@@ -627,17 +627,11 @@ function ScoreDistributionCard({ stats }: { stats: DashboardStats }) {
 // ── Activity rhythm ────────────────────────────────────────────────────────
 
 function ActivityRhythmCard({ stats }: { stats: DashboardStats }) {
-  // We don't have per-day breakdown; approximate week distribution by spreading
-  // (week_total - today) across the previous 6 days deterministically and placing
-  // today's count on the last bar. This is a *visual rhythm*, labeled as such.
   const week = stats.outreach_this_week;
   const today = stats.outreach_today;
-  const prior = Math.max(0, week - today);
-
-  // Deterministic spread so it's stable per render (not random).
-  const weights = [0.1, 0.18, 0.16, 0.14, 0.2, 0.22];
-  const priorBars = weights.map((w) => Math.round(prior * w));
-  const bars = [...priorBars, today];
+  const bars = stats.outreach_by_day.length === 7
+    ? stats.outreach_by_day
+    : [0, 0, 0, 0, 0, 0, today];
   const max = Math.max(1, ...bars);
 
   const dayLabels = useMemo(() => {
@@ -657,7 +651,7 @@ function ActivityRhythmCard({ stats }: { stats: DashboardStats }) {
         <div>
           <CardTitle>Ritme outreach</CardTitle>
           <CardDescription>
-            Aktivitas 7 hari terakhir (estimasi visual).
+            Aktivitas per hari, 7 hari terakhir.
           </CardDescription>
         </div>
         <TrendingUp className="h-4 w-4 text-muted-fg" />

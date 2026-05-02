@@ -183,6 +183,7 @@ class DashboardStats(BaseModel):
     today_quota_remaining: int
     outreach_today: int
     outreach_this_week: int
+    outreach_by_day: list[int]
     reply_rate_30d: float
     top_cities: list[dict[str, Any]]
     top_categories: list[dict[str, Any]]

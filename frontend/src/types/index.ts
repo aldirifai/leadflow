@@ -90,6 +90,7 @@ export interface DashboardStats {
   today_quota_remaining: number;
   outreach_today: number;
   outreach_this_week: number;
+  outreach_by_day: number[];
   reply_rate_30d: number;
   top_cities: Array<{ city: string; count: number }>;
   top_categories: Array<{ category: string; count: number }>;

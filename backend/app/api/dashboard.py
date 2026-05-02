@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import case, desc, func
+from sqlalchemy import case, cast, desc, func
 from sqlalchemy.orm import Session
+from sqlalchemy.types import Date
 
 from app.core.deps import verify_api_key
 from app.db.session import get_db
@@ -53,6 +54,23 @@ def get_stats(db: Session = Depends(get_db)):
         db.query(func.count(OutreachLog.id)).filter(OutreachLog.sent_at >= week_start).scalar() or 0
     )
 
+    # Per-day outreach counts for last 7 days, oldest first, today last.
+    today_date = today_start.date()
+    by_day_rows = (
+        db.query(
+            cast(OutreachLog.sent_at, Date).label("d"),
+            func.count(OutreachLog.id).label("c"),
+        )
+        .filter(OutreachLog.sent_at >= week_start)
+        .group_by("d")
+        .all()
+    )
+    counts_by_date: dict[date, int] = {row.d: row.c for row in by_day_rows}
+    outreach_by_day = [
+        counts_by_date.get(today_date - timedelta(days=offset), 0)
+        for offset in range(6, -1, -1)
+    ]
+
     cutoff_30d = datetime.utcnow() - timedelta(days=30)
     sent_30d = (
         db.query(func.count(OutreachLog.id))
@@ -97,6 +115,7 @@ def get_stats(db: Session = Depends(get_db)):
         today_quota_remaining=remaining,
         outreach_today=outreach_today,
         outreach_this_week=outreach_week,
+        outreach_by_day=outreach_by_day,
         reply_rate_30d=round(reply_rate_30d, 2),
         top_cities=top_cities,
         top_categories=top_categories,
