@@ -15,7 +15,8 @@
     "clsx": "2.1.1",
     "tailwind-merge": "2.5.2",
     "lucide-react": "0.445.0",
-    "date-fns": "3.6.0"
+    "date-fns": "3.6.0",
+    "next-themes": "0.3.0"
   },
   "devDependencies": {
     "@types/node": "20.16.10",

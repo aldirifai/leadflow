@@ -5,32 +5,77 @@
 :root {
   --bg: 0 0% 100%;
   --fg: 222 47% 11%;
-  --muted: 210 40% 96%;
+  --muted: 210 40% 96.5%;
   --muted-fg: 215 16% 47%;
   --primary: 222 47% 11%;
   --primary-fg: 210 40% 98%;
+  --accent: 161 84% 39%;
+  --accent-fg: 0 0% 100%;
   --card: 0 0% 100%;
   --card-fg: 222 47% 11%;
+  --elevated: 0 0% 100%;
   --border: 214 32% 91%;
-  --success: 142 71% 45%;
+  --ring: 222 47% 11%;
+  --success: 161 84% 39%;
   --warning: 38 92% 50%;
   --danger: 0 72% 51%;
+  --radius: 0.625rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: 222 47% 6%;
-    --fg: 210 40% 98%;
-    --muted: 217 33% 12%;
-    --muted-fg: 215 20% 65%;
-    --primary: 210 40% 98%;
-    --primary-fg: 222 47% 11%;
-    --card: 222 47% 8%;
-    --card-fg: 210 40% 98%;
-    --border: 217 33% 17%;
-  }
+.dark {
+  --bg: 222 47% 5%;
+  --fg: 210 40% 98%;
+  --muted: 217 33% 13%;
+  --muted-fg: 215 20% 65%;
+  --primary: 210 40% 98%;
+  --primary-fg: 222 47% 11%;
+  --accent: 161 84% 45%;
+  --accent-fg: 222 47% 8%;
+  --card: 222 47% 7%;
+  --card-fg: 210 40% 98%;
+  --elevated: 222 47% 9%;
+  --border: 217 33% 17%;
+  --ring: 215 20% 65%;
+  --success: 161 84% 45%;
+  --warning: 38 92% 55%;
+  --danger: 0 72% 60%;
 }
 
-* { border-color: hsl(var(--border)); }
-html, body { background: hsl(var(--bg)); color: hsl(var(--fg)); }
-body { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+* {
+  border-color: hsl(var(--border));
+}
+
+html, body {
+  background: hsl(var(--bg));
+  color: hsl(var(--fg));
+}
+
+body {
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: hsl(var(--accent) / 0.3);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 5px;
+  border: 2px solid hsl(var(--bg));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-fg) / 0.5);
+}
+
+kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid hsl(var(--border));
+}
