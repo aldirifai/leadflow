@@ -1,8 +1,8 @@
-export function buildMailto(email: string, subject: string, body: string): string {
-  const params = new URLSearchParams();
-  if (subject) params.set('subject', subject);
+export function buildGmailCompose(email: string, subject: string, body: string): string {
+  const params = new URLSearchParams({ view: 'cm', to: email });
+  if (subject) params.set('su', subject);
   if (body) params.set('body', body);
-  return `mailto:${email}?${params.toString()}`;
+  return `https://mail.google.com/mail/?${params.toString()}`;
 }
 
 export function buildWhatsAppLink(phone: string, message: string): string {

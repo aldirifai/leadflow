@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge, Input, Select, Textarea, Label } from '@/components/ui';
 import { Button } from '@/components/ui/Button';
 import {
-  buildMailto,
+  buildGmailCompose,
   buildWhatsAppLink,
   copyToClipboard,
   formatDateTime,
@@ -102,7 +102,7 @@ export default function LeadDetailPage() {
     if (action === 'open') {
       let url: string | null = null;
       if (composeChannel === 'email' && lead.email) {
-        url = buildMailto(lead.email, composeSubject, composeBody);
+        url = buildGmailCompose(lead.email, composeSubject, composeBody);
       } else if (composeChannel === 'whatsapp' && (lead.whatsapp || lead.phone)) {
         url = buildWhatsAppLink(lead.whatsapp || lead.phone || '', composeBody);
       } else if (composeChannel === 'linkedin' && lead.linkedin) {
@@ -409,8 +409,11 @@ export default function LeadDetailPage() {
             </Button>
           </div>
           <p className="text-xs text-muted-fg">
-            Tools tidak mengirim pesan otomatis. Klik open akan membuka client kamu (mailto, WA Web,
-            LinkedIn) dengan pesan pre-filled. Setelah konfirmasi, log akan disimpan otomatis.
+            Email kebuka di Gmail web compose pre-filled — pakai tombol{' '}
+            <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">▼</kbd> di samping{' '}
+            <strong>Send</strong> → <strong>Schedule send</strong> kalau mau spread out. WhatsApp
+            membuka WA Web, LinkedIn membuka profilnya. Tools tidak kirim otomatis — log disimpan
+            setelah kamu konfirmasi.
           </p>
         </CardContent>
       </Card>
