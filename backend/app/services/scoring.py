@@ -76,7 +76,6 @@ def rule_priority_categories(lead: Lead) -> tuple[int, str | None]:
         return 0, None
     cat = lead.category.lower()
     priority = [
-        "dokter", "doctor",
         "kursus", "course", "school", "training", "academy",
         "salon", "spa", "beauty",
         "restoran", "restaurant", "cafe", "kafe",
