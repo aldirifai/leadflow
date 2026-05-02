@@ -27,6 +27,8 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/Tabs';
+import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/Dialog';
 import {
   buildGmailCompose,
   buildWhatsAppLink,
@@ -94,6 +96,9 @@ export default function LeadDetailPage() {
   const [showReplyFor, setShowReplyFor] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
 
+  const toast = useToast();
+  const confirm = useConfirm();
+
   const refresh = async () => {
     try {
       const [l, o, t] = await Promise.all([
@@ -122,9 +127,10 @@ export default function LeadDetailPage() {
     setEnriching(true);
     try {
       await api.enrichLead(leadId);
+      toast.success('Enrichment selesai.');
       await refresh();
     } catch (e) {
-      alert(`Enrichment gagal: ${e}`);
+      toast.danger(`Enrichment gagal: ${e}`);
     } finally {
       setEnriching(false);
     }
@@ -190,7 +196,12 @@ export default function LeadDetailPage() {
       }
     }
 
-    if (confirm('Tandai pesan ini sudah dikirim?')) {
+    const ok = await confirm({
+      title: 'Tandai pesan sudah dikirim?',
+      description: 'Outreach ter-log dan lead status akan otomatis pindah ke "contacted" kalau masih new/approved. Cooldown 30 hari mulai dari sekarang.',
+      confirmText: 'Sudah dikirim',
+    });
+    if (ok) {
       try {
         await api.logOutreach(leadId, {
           channel: composeChannel,
@@ -200,9 +211,11 @@ export default function LeadDetailPage() {
         setComposeBody('');
         setComposeSubject('');
         setComposeStatus({ tone: 'success', text: 'Outreach ter-log. Cek tab Outreach.' });
+        toast.success('Outreach ter-log.');
         await refresh();
       } catch (e) {
         setComposeStatus({ tone: 'danger', text: `Log gagal: ${e}` });
+        toast.danger(`Log gagal: ${e}`);
       }
     }
   };
@@ -211,9 +224,10 @@ export default function LeadDetailPage() {
     setStatusUpdating(newStatus);
     try {
       await api.updateLeadStatus(leadId, newStatus);
+      toast.success(`Status di-update ke "${newStatus}".`);
       await refresh();
     } catch (e) {
-      alert(`Update status gagal: ${e}`);
+      toast.danger(`Update status gagal: ${e}`);
     } finally {
       setStatusUpdating(null);
     }
@@ -223,9 +237,10 @@ export default function LeadDetailPage() {
     setRescoring(true);
     try {
       await api.rescoreLead(leadId);
+      toast.success('Score di-recompute.');
       await refresh();
     } catch (e) {
-      alert(`Re-score gagal: ${e}`);
+      toast.danger(`Re-score gagal: ${e}`);
     } finally {
       setRescoring(false);
     }
@@ -235,9 +250,10 @@ export default function LeadDetailPage() {
     setSavingNotes(true);
     try {
       await api.updateLeadNotes(leadId, editingNotes);
+      toast.success('Notes tersimpan.');
       await refresh();
     } catch (e) {
-      alert(`Save notes gagal: ${e}`);
+      toast.danger(`Save notes gagal: ${e}`);
     } finally {
       setSavingNotes(false);
     }
@@ -259,9 +275,20 @@ export default function LeadDetailPage() {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Hapus permanen "${lead.name}"?`)) return;
-    await api.deleteLead(leadId);
-    router.push('/leads');
+    const ok = await confirm({
+      title: `Hapus "${lead.name}"?`,
+      description: 'Lead, score, enrichment, dan outreach log-nya ikut terhapus permanen. Tidak bisa di-undo.',
+      confirmText: 'Hapus permanen',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await api.deleteLead(leadId);
+      toast.success(`"${lead.name}" dihapus.`);
+      router.push('/leads');
+    } catch (e) {
+      toast.danger(`Gagal hapus: ${e}`);
+    }
   };
 
   const fitScore = lead.score?.fit_score ?? 0;

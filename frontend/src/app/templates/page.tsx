@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea, Label, Badge, Skeleton } from '@/components/ui';
+import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/Dialog';
 import { FileText, Pencil, Plus, Trash2 } from 'lucide-react';
 
 type TemplateDraft = Omit<MessageTemplate, 'id' | 'created_at'>;
@@ -35,6 +37,8 @@ export default function TemplatesPage() {
   const [editing, setEditing] = useState<TemplateDraft | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const refresh = async () => setTemplates(await api.listTemplates());
 
@@ -66,29 +70,42 @@ export default function TemplatesPage() {
   const handleSave = async () => {
     if (!editing) return;
     if (!editing.name || !editing.body) {
-      alert('Name dan body wajib diisi.');
+      toast.danger('Name dan body wajib diisi.');
       return;
     }
     setSaving(true);
     try {
       if (editingId) {
         await api.updateTemplate(editingId, editing);
+        toast.success('Template ter-update.');
       } else {
         await api.createTemplate(editing);
+        toast.success('Template baru tersimpan.');
       }
       cancelEdit();
       await refresh();
     } catch (e) {
-      alert(`Gagal save: ${e}`);
+      toast.danger(`Gagal save: ${e}`);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Hapus template ini?')) return;
-    await api.deleteTemplate(id);
-    await refresh();
+    const ok = await confirm({
+      title: 'Hapus template?',
+      description: 'Template yang sudah dipakai untuk generate-message sebelumnya tetap tersimpan di outreach log — yang dihapus cuma referensi-nya untuk generate berikutnya.',
+      confirmText: 'Hapus',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await api.deleteTemplate(id);
+      toast.success('Template dihapus.');
+      await refresh();
+    } catch (e) {
+      toast.danger(`Gagal hapus: ${e}`);
+    }
   };
 
   return (

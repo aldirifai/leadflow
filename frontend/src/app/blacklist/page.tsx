@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Label, Badge, Skeleton } from '@/components/ui';
+import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/Dialog';
 import { formatDate } from '@/lib/helpers';
 import { ShieldOff, Trash2, Plus } from 'lucide-react';
 
@@ -29,6 +31,8 @@ export default function BlacklistPage() {
   const [value, setValue] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const refresh = async () => setEntries(await api.listBlacklist());
 
@@ -38,7 +42,7 @@ export default function BlacklistPage() {
 
   const handleAdd = async () => {
     if (!value.trim()) {
-      alert('Value wajib diisi.');
+      toast.danger('Value wajib diisi.');
       return;
     }
     setSubmitting(true);
@@ -50,18 +54,30 @@ export default function BlacklistPage() {
       });
       setValue('');
       setReason('');
+      toast.success('Entry ditambahkan ke blacklist.');
       await refresh();
     } catch (e) {
-      alert(`Gagal: ${e}`);
+      toast.danger(`Gagal tambah: ${e}`);
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleRemove = async (id: number) => {
-    if (!confirm('Hapus dari blacklist?')) return;
-    await api.removeBlacklist(id);
-    await refresh();
+    const ok = await confirm({
+      title: 'Hapus dari blacklist?',
+      description: 'Lead yang sebelumnya match identifier ini tidak akan auto-unblacklist — kamu perlu update statusnya manual.',
+      confirmText: 'Hapus',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await api.removeBlacklist(id);
+      toast.success('Entry dihapus.');
+      await refresh();
+    } catch (e) {
+      toast.danger(`Gagal hapus: ${e}`);
+    }
   };
 
   return (

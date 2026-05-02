@@ -1,5 +1,6 @@
 """Lead enrichment: website analysis + outreach angle + message generation."""
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -8,6 +9,17 @@ from sqlalchemy.orm import Session
 from app.models.lead import Lead, LeadEnrichment, MessageTemplate
 from app.services.openrouter import chat_completion, chat_completion_json
 from app.services.website import fetch_website_text
+
+
+# Belt-and-suspenders alongside the prompt rule: regex-replace common
+# phonetic misspellings of 'Aldi' that Claude Haiku occasionally emits.
+_ALDI_VARIANTS = re.compile(r"\b(?:Aldhi|Aldhy|Aldy|Aldie)\b")
+
+
+def _normalize_aldi(text: str | None) -> str | None:
+    if not text:
+        return text
+    return _ALDI_VARIANTS.sub("Aldi", text)
 
 
 SYSTEM_PROMPT_ANALYSIS = """Anda adalah konsultan digital marketing yang membantu Aldi (developer solo dari landingklinik.id) mengidentifikasi peluang outreach untuk jasa pembuatan landing page khusus klinik gigi di Indonesia.
@@ -112,24 +124,28 @@ async def enrich_lead(db: Session, lead: Lead) -> LeadEnrichment:
             "suggested_angle": "",
         }
 
+    summary = _normalize_aldi(analysis.get("website_summary"))
+    angle = _normalize_aldi(analysis.get("suggested_angle"))
+    weaknesses = [_normalize_aldi(w) for w in analysis.get("weaknesses", []) if w]
+
     enrichment = lead.enrichment
     if enrichment:
-        enrichment.website_summary = analysis.get("website_summary")
+        enrichment.website_summary = summary
         enrichment.website_audit = {
             "website_data": website_data,
-            "weaknesses": analysis.get("weaknesses", []),
+            "weaknesses": weaknesses,
         }
-        enrichment.suggested_angle = analysis.get("suggested_angle")
+        enrichment.suggested_angle = angle
         enrichment.enriched_at = datetime.utcnow()
     else:
         enrichment = LeadEnrichment(
             lead_id=lead.id,
-            website_summary=analysis.get("website_summary"),
+            website_summary=summary,
             website_audit={
                 "website_data": website_data,
-                "weaknesses": analysis.get("weaknesses", []),
+                "weaknesses": weaknesses,
             },
-            suggested_angle=analysis.get("suggested_angle"),
+            suggested_angle=angle,
         )
         db.add(enrichment)
 
@@ -166,8 +182,8 @@ async def generate_message(
     except Exception as e:
         return {"subject": None, "body": f"[Generation failed: {type(e).__name__}]"}
 
-    subject = result.get("subject") if channel == "email" else None
-    body = result.get("body", "")
+    subject = _normalize_aldi(result.get("subject")) if channel == "email" else None
+    body = _normalize_aldi(result.get("body", "")) or ""
 
     if enrichment:
         if channel == "email":

@@ -15,6 +15,8 @@ import {
 import { Badge, Input, Select, Skeleton, Divider, Label } from '@/components/ui';
 import { Button } from '@/components/ui/Button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs';
+import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/Dialog';
 import { statusColor, formatDate } from '@/lib/helpers';
 import {
   Search,
@@ -80,6 +82,8 @@ export default function LeadsPage() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [rescoring, setRescoring] = useState(false);
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const fetchData = async (overrides?: Partial<Filters> & { page?: number }) => {
     const f = { ...filters, ...overrides };
@@ -150,12 +154,19 @@ export default function LeadsPage() {
   };
 
   const handleRescore = async () => {
-    if (!confirm('Re-score semua leads? Ini akan menghitung ulang fit score.')) return;
+    const ok = await confirm({
+      title: 'Re-score semua leads?',
+      description: 'Menghitung ulang fit score untuk semua lead pakai rules terbaru. Bisa makan waktu kalau lead sudah banyak.',
+      confirmText: 'Re-score all',
+    });
+    if (!ok) return;
     setRescoring(true);
     try {
       const res = await api.rescoreAll();
-      alert(`Selesai. ${res.rescored} leads di-rescore.`);
+      toast.success(`Selesai — ${res.rescored} leads di-rescore.`);
       fetchData();
+    } catch (e) {
+      toast.danger(`Gagal re-score: ${e}`);
     } finally {
       setRescoring(false);
     }
